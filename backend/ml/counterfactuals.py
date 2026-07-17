@@ -238,8 +238,8 @@ def _build_change_list(
             {
                 "feature": column,
                 "display_name": DISPLAY_NAMES.get(column, column),
-                "from": before,
-                "to": after,
+                "current": before,
+                "recommended": after,
             }
         )
 
@@ -255,6 +255,38 @@ def _build_counterfactual_response(
         "changes": _build_change_list(original, candidate),
         "approved_probability": round(probability, FLOAT_PRECISION),
     }
+
+
+def _get_approved_probability(candidate: dict[str, Any]) -> float:
+    return float(_load_wrapped_model().predict_proba(pd.DataFrame([candidate]))[0][1])
+
+
+def _refine_counterfactual_candidate(
+    original: dict[str, Any],
+    candidate: dict[str, Any],
+    model: _PreprocessedModelWrapper,
+) -> dict[str, Any]:
+    refined_candidate = dict(candidate)
+    current_probability = _get_approved_probability(refined_candidate)
+
+    for column in FEATURE_COLUMNS:
+        if refined_candidate[column] == original[column]:
+            continue
+
+        trial_candidate = dict(refined_candidate)
+        trial_candidate[column] = original[column]
+        trial_candidate = _normalize_applicant(trial_candidate)
+
+        trial_prediction = int(_to_python(model.predict(pd.DataFrame([trial_candidate]))[0]))
+        if trial_prediction != 1:
+            continue
+
+        trial_probability = _get_approved_probability(trial_candidate)
+        if trial_probability >= current_probability:
+            refined_candidate = trial_candidate
+            current_probability = trial_probability
+
+    return refined_candidate
 
 
 def generate_counterfactuals(applicant: dict[str, Any]) -> list[dict[str, Any]]:
@@ -298,11 +330,13 @@ def generate_counterfactuals(applicant: dict[str, Any]) -> list[dict[str, Any]]:
         if prediction != 1:
             continue
 
+        candidate = _refine_counterfactual_candidate(original, candidate, model)
+
         changes = _build_change_list(original, candidate)
         if not changes:
             continue
 
-        signature = tuple((change["feature"], change["to"]) for change in changes)
+        signature = tuple((change["feature"], change["recommended"]) for change in changes)
         if signature in seen_signatures:
             continue
         seen_signatures.add(signature)
