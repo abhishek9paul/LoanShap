@@ -5,12 +5,7 @@ from backend.ml.schemas import (
     PersonEducation,
     HomeOwnership,
     LoanIntent,
-    PredictionResponse,
     PreviousLoanDefault,
-    RiskLevel,
-    ShapDirection,
-    ShapFactor,
-    ExplanationResponse
 )
 
 person_gender=PersonGender.MALE
