@@ -63,15 +63,6 @@ const FONT_IMPORT = `
     -webkit-backdrop-filter: blur(14px);
   }
 
-  .ai-interactive-glow {
-    animation: insightPulse 3.5s infinite ease-in-out;
-    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
-  }
-  .ai-interactive-glow:hover {
-    transform: translateY(-2px);
-    border-color: rgba(99, 102, 241, 0.6) !important;
-  }
-
   .radar-ring {
     animation: signalRadar 2s infinite cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -83,18 +74,19 @@ const FONT_IMPORT = `
   }
 `;
 
+// Integrated Indian Rupees (₹) and clamped maximum parameter boundary settings at 8 Lakhs
 const FIELD_META = [
-  { key: "person_age", label: "Age", type: "number" },
-  { key: "person_income", label: "Annual income ($)", type: "number" },
+  { key: "person_age", label: "Age", type: "number", min: 18, max: 100 },
+  { key: "person_income", label: "Annual income (₹)", type: "number", min: 0, max: 800000 },
   { key: "person_home_ownership", label: "Home ownership", type: "select", options: ["RENT", "OWN", "MORTGAGE", "OTHER"] },
-  { key: "person_emp_length", label: "Employment length (yrs)", type: "number" },
+  { key: "person_emp_length", label: "Employment length (yrs)", type: "number", min: 0, max: 60 },
   { key: "loan_intent", label: "Loan purpose", type: "select", options: ["EDUCATION", "MEDICAL", "PERSONAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"] },
-  { key: "loan_amnt", label: "Loan amount ($)", type: "number" },
-  { key: "loan_int_rate", label: "Interest rate (%)", type: "number" },
-  { key: "loan_percent_income", label: "Loan / income ratio", type: "number", step: 0.01 },
+  { key: "loan_amnt", label: "Loan amount (₹)", type: "number", min: 5000, max: 800000 },
+  { key: "loan_int_rate", label: "Interest rate (%)", type: "number", min: 1, max: 35, step: 0.1 },
+  { key: "loan_percent_income", label: "Loan / income ratio", type: "number", min: 0, max: 1.0, step: 0.01 },
   { key: "cb_person_default_on_file", label: "Prior default on file", type: "select", options: ["N", "Y"] },
-  { key: "cb_person_cred_hist_length", label: "Credit history length (yrs)", type: "number" },
-  { key: "credit_score", label: "Credit score", type: "number" },
+  { key: "cb_person_cred_hist_length", label: "Credit history length (yrs)", type: "number", min: 0, max: 50 },
+  { key: "credit_score", label: "Credit score", type: "number", min: 300, max: 850 },
 ];
 
 const FEATURE_LABELS = {
@@ -112,18 +104,19 @@ const FEATURE_LABELS = {
 };
 
 const INITIAL_FALLBACK_DATA = {
-  person_age: 29, person_income: 51000, person_home_ownership: "RENT",
-  person_emp_length: 3, loan_intent: "EDUCATION", loan_amnt: 12000,
-  loan_int_rate: 11.5, loan_percent_income: 0.24, cb_person_default_on_file: "N",
+  person_age: 29, person_income: 350000, person_home_ownership: "RENT",
+  person_emp_length: 3, loan_intent: "EDUCATION", loan_amnt: 80000,
+  loan_int_rate: 11.5, loan_percent_income: 0.23, cb_person_default_on_file: "N",
   cb_person_cred_hist_length: 4, credit_score: 645
 };
 
 function runMockAssessment(a) {
   if (!a || Object.keys(a).length === 0) return null;
+  // Normalized contribution weights configured to safely parse scaled regional variables
   const contributions = [
     { feature: "credit_score", impact: ((a.credit_score - 620) / 230) * 0.34, value: a.credit_score },
     { feature: "loan_percent_income", impact: -(a.loan_percent_income - 0.25) * 0.9, value: a.loan_percent_income },
-    { feature: "person_income", impact: (Math.min(a.person_income, 100000) / 100000 - 0.4) * 0.22, value: a.person_income },
+    { feature: "person_income", impact: (Math.min(a.person_income, 500000) / 500000 - 0.4) * 0.22, value: a.person_income },
     { feature: "cb_person_default_on_file", impact: a.cb_person_default_on_file === "Y" ? -0.22 : 0.05, value: a.cb_person_default_on_file },
     { feature: "cb_person_cred_hist_length", impact: (Math.min(a.cb_person_cred_hist_length, 15) / 15) * 0.13 - 0.03, value: a.cb_person_cred_hist_length },
     { feature: "loan_int_rate", impact: -((a.loan_int_rate - 10) / 15) * 0.12, value: a.loan_int_rate },
@@ -256,7 +249,7 @@ export default function FinancialAdvisorAgent() {
     }
   }, [messages]);
 
-  // CSV parsing logic mapping strictly to provided asset schema attributes
+  // Ingests CSV variables safely, clamping values over 8 Lakhs to stay within constraints
   useEffect(() => {
     Papa.parse("/demo.csv", {
       download: true,
@@ -267,19 +260,19 @@ export default function FinancialAdvisorAgent() {
         if (!results.data || results.data.length === 0) return;
         
         const parsedRows = results.data.map((row, index) => {
-          // Re-calculate context ratio fallback if field isn't flat in source file
-          const calculatedRatio = row.person_income ? parseFloat((row.loan_amnt / row.person_income).toFixed(2)) : 0;
+          const incomeVal = Math.min(800000, row.person_income ?? 300000);
+          const loanVal = Math.min(800000, row.loan_amnt ?? 50000);
+          const calculatedRatio = incomeVal > 0 ? parseFloat((loanVal / incomeVal).toFixed(2)) : 0;
+          
           return {
-            // STRICT REQUIREMENT: Dynamic drop down item label overrides status indicators
             label: `Applicant ${index + 1}`,
             data: {
               person_age: row.person_age ?? 30,
-              person_income: row.person_income ?? 50000,
+              person_income: incomeVal,
               person_home_ownership: row.person_home_ownership || "RENT",
-              // Maps attributes exactly matching layout images (e.g. person_emp_exp)
               person_emp_length: row.person_emp_exp ?? row.person_emp_length ?? 2,
               loan_intent: row.loan_intent || "PERSONAL",
-              loan_amnt: row.loan_amnt ?? 10000,
+              loan_amnt: loanVal,
               loan_int_rate: row.loan_int_rate ?? row.loan_int_r ?? 12.0,
               loan_percent_income: row.loan_percent_income ?? row.loan_perce ?? calculatedRatio,
               cb_person_default_on_file: row.previous_loan_defaults_on_file || row.cb_person || "N",
@@ -295,7 +288,7 @@ export default function FinancialAdvisorAgent() {
         setResult(runMockAssessment(parsedRows[0].data));
       },
       error: (err) => {
-        console.warn("CSV ingestion failure context:", err);
+        console.warn("CSV ingestion matrix warning context:", err);
       }
     });
   }, []);
@@ -308,9 +301,15 @@ export default function FinancialAdvisorAgent() {
     setMessages([]);
   }
 
-  // Set clean control values
-  function updateField(key, value) {
-    setApplicant((prev) => ({ ...prev, [key]: value }));
+  function updateField(key, value, meta) {
+    let sanitizedValue = value;
+
+    if (meta.type === "number" && value !== "") {
+      const num = Number(value);
+      sanitizedValue = Math.min(meta.max, Math.max(meta.min, num));
+    }
+
+    setApplicant((prev) => ({ ...prev, [key]: sanitizedValue }));
     setSelectedSample("");
   }
 
@@ -341,7 +340,7 @@ export default function FinancialAdvisorAgent() {
     <div className="w-screen h-screen overflow-hidden bg-slate-50 font-body text-slate-900">
       <style>{FONT_IMPORT}</style>
 
-      {/* Ambient backgrounds */}
+      {/* Decorative ambient background assets */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden z-0">
         <div className="blob-a absolute -top-24 -left-24 w-96 h-96 rounded-full bg-indigo-200/40 blur-3xl" />
         <div className="blob-b absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full bg-emerald-200/30 blur-3xl" />
@@ -516,22 +515,31 @@ export default function FinancialAdvisorAgent() {
                   <div className="mt-3 pt-3 border-t border-slate-200/70 space-y-3 pop">
                     {FIELD_META.map((f) => (
                       <div key={f.key} className="flex items-center justify-between gap-3">
-                        <label className="font-body text-xs text-slate-500 w-1/2">{f.label}</label>
+                        <div className="flex flex-col w-1/2">
+                          <label className="font-body text-xs text-slate-700">{f.label}</label>
+                          {f.type === "number" && (
+                            <span className="text-[10px] text-slate-400 font-body">
+                              Limit: {f.min} - {f.key.includes("income") || f.key.includes("amnt") ? "8 Lakh" : f.max}
+                            </span>
+                          )}
+                        </div>
                         {f.type === "select" ? (
                           <select
                             className="font-body text-sm bg-white/70 border border-slate-200 rounded px-2 py-1 w-1/2 focus:outline-none focus:border-indigo-400"
                             value={applicant[f.key] || ""}
-                            onChange={(e) => updateField(f.key, e.target.value)}
+                            onChange={(e) => updateField(f.key, e.target.value, f)}
                           >
                             {f.options.map((o) => (<option key={o} value={o}>{o}</option>))}
                           </select>
                         ) : (
                           <input
                             type="number"
+                            min={f.min}
+                            max={f.max}
                             step={f.step || 1}
-                            className="font-body text-sm bg-white/70 border border-slate-200 rounded px-2 py-1 w-1/2 focus:outline-none focus:border-indigo-400"
+                            className="font-body text-sm bg-white/70 border border-slate-200 rounded px-2 py-1 w-1/2 focus:outline-none focus:border-indigo-400 font-semibold text-slate-800"
                             value={applicant[f.key] ?? ""}
-                            onChange={(e) => updateField(f.key, e.target.value === "" ? "" : Number(e.target.value))}
+                            onChange={(e) => updateField(f.key, e.target.value, f)}
                           />
                         )}
                       </div>
@@ -591,11 +599,6 @@ export default function FinancialAdvisorAgent() {
                       </div>
                       <div className="font-body text-[10px] text-slate-400 font-semibold tracking-wide uppercase">Attribution Verification</div>
                     </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 font-body text-[10px] font-medium tracking-wide">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping" />
-                    INTERACTIVE
                   </div>
                 </div>
 
