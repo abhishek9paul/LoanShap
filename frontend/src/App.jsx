@@ -1,18 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   CheckCircle2, XCircle, Send, ChevronDown, ChevronUp,
-  BookOpen, ShieldCheck, ArrowRight, TrendingUp, Sparkles
+  BookOpen, ShieldCheck, ArrowRight, TrendingUp, Sparkles, UserCheck
 } from "lucide-react";
+import Papa from "papaparse";
 import RandomLetterSwap from "./RandomLetterSwap";
 import UserCursor from "./UserCursor";
 import Snowfall from "./Snowfall";
 
 /* ============================================================
    DESIGN SYSTEM — "The Underwriting Ledger"
-   ------------------------------------------------------------
-   Palette: Paper white, ink slate-900, brand indigo-700, 
-   emerald-700 (positive) / rose-600 (negative).
-   Type: Newsreader italic (display) · IBM Plex Sans (body & data).
    ============================================================ */
 
 const FONT_IMPORT = `
@@ -32,7 +29,6 @@ const FONT_IMPORT = `
     100% { opacity: 1; letter-spacing: -0.01em; filter: blur(0); }
   }
 
-  /* Core Interactive AI System Ring Pulse Animation */
   @keyframes insightPulse {
     0%, 100% { 
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(99, 102, 241, 0.15);
@@ -44,7 +40,6 @@ const FONT_IMPORT = `
     }
   }
 
-  /* Micro Signal Ping Indicator */
   @keyframes signalRadar {
     0% { transform: scale(0.95); opacity: 1; }
     100% { transform: scale(1.8); opacity: 0; }
@@ -68,6 +63,15 @@ const FONT_IMPORT = `
     -webkit-backdrop-filter: blur(14px);
   }
 
+  .ai-interactive-glow {
+    animation: insightPulse 3.5s infinite ease-in-out;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+  }
+  .ai-interactive-glow:hover {
+    transform: translateY(-2px);
+    border-color: rgba(99, 102, 241, 0.6) !important;
+  }
+
   .radar-ring {
     animation: signalRadar 2s infinite cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -78,41 +82,6 @@ const FONT_IMPORT = `
     .blob-a, .blob-b, .rise, .pop, .animate-title, .ai-interactive-glow, .radar-ring { animation: none !important; }
   }
 `;
-
-const SAMPLE_APPLICANTS = [
-  {
-    label: "Applicant #1042",
-    tag: "Clear approve",
-    data: {
-      person_age: 34, person_income: 82000, person_home_ownership: "MORTGAGE",
-      person_emp_length: 8, loan_intent: "HOMEIMPROVEMENT", loan_amnt: 15000,
-      loan_int_rate: 9.2, loan_percent_income: 0.11, cb_person_default_on_file: "N",
-      cb_person_cred_hist_length: 12, credit_score: 745,
-    },
-  },
-  {
-    label: "Applicant #2871",
-    tag: "Clear reject",
-    data: {
-      person_age: 23, person_income: 28000, person_home_ownership: "RENT",
-      person_emp_length: 1, loan_intent: "PERSONAL", loan_amnt: 18000,
-      loan_int_rate: 16.8, loan_percent_income: 0.52, cb_person_default_on_file: "Y",
-      cb_person_cred_hist_length: 2, credit_score: 560,
-    },
-  },
-  {
-    label: "Applicant #1930",
-    tag: "Borderline",
-    data: {
-      person_age: 29, person_income: 51000, person_home_ownership: "RENT",
-      person_emp_length: 3, loan_intent: "EDUCATION", loan_amnt: 12000,
-      loan_int_rate: 11.5, loan_percent_income: 0.24, cb_person_default_on_file: "N",
-      cb_person_cred_hist_length: 4, credit_score: 645,
-    },
-  },
-];
-
-const EMPTY_APPLICANT = SAMPLE_APPLICANTS[2].data;
 
 const FIELD_META = [
   { key: "person_age", label: "Age", type: "number" },
@@ -142,7 +111,15 @@ const FEATURE_LABELS = {
   loan_intent: "Loan purpose",
 };
 
+const INITIAL_FALLBACK_DATA = {
+  person_age: 29, person_income: 51000, person_home_ownership: "RENT",
+  person_emp_length: 3, loan_intent: "EDUCATION", loan_amnt: 12000,
+  loan_int_rate: 11.5, loan_percent_income: 0.24, cb_person_default_on_file: "N",
+  cb_person_cred_hist_length: 4, credit_score: 645
+};
+
 function runMockAssessment(a) {
+  if (!a || Object.keys(a).length === 0) return null;
   const contributions = [
     { feature: "credit_score", impact: ((a.credit_score - 620) / 230) * 0.34, value: a.credit_score },
     { feature: "loan_percent_income", impact: -(a.loan_percent_income - 0.25) * 0.9, value: a.loan_percent_income },
@@ -180,6 +157,7 @@ function runMockAssessment(a) {
 }
 
 function mockAnswerFollowup(question, result) {
+  if (!result) return "System parsing active. Please select an applicant row execution profile first.";
   const q = question.toLowerCase();
   const hit = result.shap_values.find((s) => q.includes(s.feature.split("_")[0]) || q.includes(FEATURE_LABELS[s.feature].toLowerCase().split(" ")[0]));
   if (hit) {
@@ -210,6 +188,7 @@ function useCountUp(target, duration = 650) {
 }
 
 function BalanceBeam({ shapValues }) {
+  if (!shapValues) return null;
   const maxAbs = Math.max(...shapValues.map((s) => Math.abs(s.impact)), 0.01);
   return (
     <div className="space-y-3">
@@ -259,16 +238,17 @@ function BalanceBeam({ shapValues }) {
 
 export default function FinancialAdvisorAgent() {
   const [viewMode, setViewMode] = useState("landing");
-  const [applicant, setApplicant] = useState(EMPTY_APPLICANT);
-  const [selectedSample, setSelectedSample] = useState(2);
+  const [applicants, setApplicants] = useState([]);
+  const [applicant, setApplicant] = useState(INITIAL_FALLBACK_DATA);
+  const [selectedSample, setSelectedSample] = useState("");
   const [formOpen, setFormOpen] = useState(false);
-  const [result, setResult] = useState(() => runMockAssessment(EMPTY_APPLICANT));
+  const [result, setResult] = useState(() => runMockAssessment(INITIAL_FALLBACK_DATA));
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState("");
 
   const chatEndRef = useRef(null);
-  const animatedRisk = useCountUp(result.prediction.risk_probability * 100);
+  const animatedRisk = useCountUp(result ? result.prediction.risk_probability * 100 : 0);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -276,15 +256,62 @@ export default function FinancialAdvisorAgent() {
     }
   }, [messages]);
 
-  function pickSample(i) {
-    setSelectedSample(i);
-    setApplicant(SAMPLE_APPLICANTS[i].data);
+  // CSV parsing logic mapping strictly to provided asset schema attributes
+  useEffect(() => {
+    Papa.parse("/demo.csv", {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true,
+      complete: (results) => {
+        if (!results.data || results.data.length === 0) return;
+        
+        const parsedRows = results.data.map((row, index) => {
+          // Re-calculate context ratio fallback if field isn't flat in source file
+          const calculatedRatio = row.person_income ? parseFloat((row.loan_amnt / row.person_income).toFixed(2)) : 0;
+          return {
+            // STRICT REQUIREMENT: Dynamic drop down item label overrides status indicators
+            label: `Applicant ${index + 1}`,
+            data: {
+              person_age: row.person_age ?? 30,
+              person_income: row.person_income ?? 50000,
+              person_home_ownership: row.person_home_ownership || "RENT",
+              // Maps attributes exactly matching layout images (e.g. person_emp_exp)
+              person_emp_length: row.person_emp_exp ?? row.person_emp_length ?? 2,
+              loan_intent: row.loan_intent || "PERSONAL",
+              loan_amnt: row.loan_amnt ?? 10000,
+              loan_int_rate: row.loan_int_rate ?? row.loan_int_r ?? 12.0,
+              loan_percent_income: row.loan_percent_income ?? row.loan_perce ?? calculatedRatio,
+              cb_person_default_on_file: row.previous_loan_defaults_on_file || row.cb_person || "N",
+              cb_person_cred_hist_length: row.cb_person_cred_hist_length ?? 4,
+              credit_score: row.credit_sco ?? row.credit_score ?? 650,
+            }
+          };
+        });
+
+        setApplicants(parsedRows);
+        setSelectedSample(0);
+        setApplicant(parsedRows[0].data);
+        setResult(runMockAssessment(parsedRows[0].data));
+      },
+      error: (err) => {
+        console.warn("CSV ingestion failure context:", err);
+      }
+    });
+  }, []);
+
+  function handleDropdownChange(e) {
+    const index = parseInt(e.target.value, 10);
+    setSelectedSample(index);
+    setApplicant(applicants[index].data);
+    setResult(runMockAssessment(applicants[index].data));
     setMessages([]);
   }
 
+  // Set clean control values
   function updateField(key, value) {
     setApplicant((prev) => ({ ...prev, [key]: value }));
-    setSelectedSample(null);
+    setSelectedSample("");
   }
 
   function runAssessment() {
@@ -307,20 +334,19 @@ export default function FinancialAdvisorAgent() {
     }, 400);
   }
 
-  const verdict = result.prediction.verdict;
+  const verdict = result ? result.prediction.verdict : "PENDING";
   const isApproved = verdict === "APPROVED";
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-slate-50 font-body text-slate-900">
       <style>{FONT_IMPORT}</style>
 
-      {/* Decorative ambient blobs */}
+      {/* Ambient backgrounds */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden z-0">
         <div className="blob-a absolute -top-24 -left-24 w-96 h-96 rounded-full bg-indigo-200/40 blur-3xl" />
         <div className="blob-b absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full bg-emerald-200/30 blur-3xl" />
       </div>
 
-      {/* Main Slide Track Wrapper */}
       <div 
         className="flex w-[200vw] h-screen items-stretch transition-transform duration-700 ease-in-out z-10 relative"
         style={{ transform: viewMode === "landing" ? "translateX(0)" : "translateX(-100vw)" }}
@@ -352,7 +378,6 @@ export default function FinancialAdvisorAgent() {
             style={{ width: "100%", height: "100%" }}
             classNames={{ root: "cursor-none-zone flex flex-col items-center justify-center px-6 py-6" }}
           >
-            {/* Hero Segment */}
             <main className="relative max-w-4xl mx-auto text-center flex flex-col justify-center items-center">
               <div className="mb-4 animate-title select-none h-[clamp(3.5rem,9.5vw,6.2rem)]">
                 <RandomLetterSwap
@@ -372,7 +397,7 @@ export default function FinancialAdvisorAgent() {
                 />
               </div>
 
-              <p className="font-body text-sm md:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed mb-5 rise select-none" style={{ animationDelay: '100ms' }}>
+              <p className="font-body text-sm md:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed mb-5 select-none rise" style={{ animationDelay: '100ms' }}>
                 A rigorous credit underwriting matrix powered by tree attribution. We translate high-dimensional feature spaces into transparent ledger verification.
               </p>
 
@@ -386,8 +411,7 @@ export default function FinancialAdvisorAgent() {
                 </button>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-4 mt-6 text-left max-w-2xl w-full rise select-none" style={{ animationDelay: '300ms' }}>
-                {/* Card A */}
+              <div className="grid sm:grid-cols-2 gap-4 mt-6 text-left max-w-2xl w-full select-none rise" style={{ animationDelay: '300ms' }}>
                 <div className="relative overflow-hidden rounded-2xl bg-slate-900 p-4 md:p-5 shadow-xl shadow-slate-900/20">
                   <div className="absolute -right-8 -top-8 w-28 h-28 rounded-full bg-indigo-500/25 blur-2xl" />
                   <TrendingUp size={18} className="text-indigo-400 mb-2.5" />
@@ -402,7 +426,6 @@ export default function FinancialAdvisorAgent() {
                   </div>
                 </div>
 
-                {/* Card B */}
                 <div className="relative rounded-2xl border border-slate-200 bg-white/70 p-4 md:p-5 shadow-sm">
                   <ShieldCheck size={18} className="text-emerald-700 mb-2.5" />
                   <h3 className="font-display italic text-base md:text-lg text-slate-900 mb-1.5 leading-snug">
@@ -444,37 +467,49 @@ export default function FinancialAdvisorAgent() {
               </button>
             </header>
 
-            {/* THREE COLUMNS */}
             <div className="grid md:grid-cols-3 gap-6 items-start">
 
               {/* COLUMN 1 — APPLICANT */}
               <div className="glass rounded-2xl p-4 shadow-lg shadow-slate-200/50">
-                <h2 className="font-display text-lg italic text-slate-800 mb-3">Applicant</h2>
+                <div className="flex items-center gap-2 mb-3">
+                  <UserCheck size={18} className="text-slate-700" />
+                  <h2 className="font-display text-lg italic text-slate-800">Applicant</h2>
+                </div>
 
-                <div className="font-body text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">From dataset</div>
-                <div className="flex flex-col gap-2 mb-4">
-                  {SAMPLE_APPLICANTS.map((s, i) => (
-                    <button
-                      key={s.label}
-                      onClick={() => pickSample(i)}
-                      className={`text-left px-3 py-2 rounded-lg font-body text-sm transition-all duration-200 flex items-center justify-between ${
-                        selectedSample === i
-                          ? "bg-slate-900 text-white shadow-md"
-                          : "bg-white/60 text-slate-700 hover:bg-white/90 border border-slate-200/70"
-                      }`}
-                    >
-                      <span className="font-body text-xs font-medium">{s.label}</span>
-                      <span className={`text-[10px] font-body font-medium ${selectedSample === i ? "text-slate-300" : "text-slate-400"}`}>{s.tag}</span>
-                    </button>
-                  ))}
+                <div className="font-body text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                  Select From Ingested Matrix File
+                </div>
+                
+                <div className="relative mb-4">
+                  <select
+                    value={selectedSample}
+                    onChange={handleDropdownChange}
+                    className="w-full font-body text-xs bg-white/80 border border-slate-200 rounded-xl px-3 py-3 pr-10 appearance-none focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100/50 shadow-sm transition-all cursor-pointer text-slate-700 font-medium"
+                  >
+                    {applicants.length === 0 ? (
+                      <option value="" disabled>Awaiting matrix parser loading pass...</option>
+                    ) : (
+                      <>
+                        <option value="" disabled>-- Select Candidate Core Row --</option>
+                        {applicants.map((s, i) => (
+                          <option key={i} value={i}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                    <ChevronDown size={16} />
+                  </div>
                 </div>
 
                 <button
                   onClick={() => setFormOpen((v) => !v)}
-                  className="flex items-center gap-1.5 text-sm font-body text-slate-600 hover:text-slate-900"
+                  className="flex items-center gap-1.5 text-xs font-body font-medium text-slate-500 hover:text-slate-900 transition-colors"
                 >
-                  {formOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                  {formOpen ? "Hide" : "Enter manually"}
+                  {formOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {formOpen ? "Hide Structural Values" : "Modify Parameters Manually"}
                 </button>
 
                 {formOpen && (
@@ -485,7 +520,7 @@ export default function FinancialAdvisorAgent() {
                         {f.type === "select" ? (
                           <select
                             className="font-body text-sm bg-white/70 border border-slate-200 rounded px-2 py-1 w-1/2 focus:outline-none focus:border-indigo-400"
-                            value={applicant[f.key]}
+                            value={applicant[f.key] || ""}
                             onChange={(e) => updateField(f.key, e.target.value)}
                           >
                             {f.options.map((o) => (<option key={o} value={o}>{o}</option>))}
@@ -495,8 +530,8 @@ export default function FinancialAdvisorAgent() {
                             type="number"
                             step={f.step || 1}
                             className="font-body text-sm bg-white/70 border border-slate-200 rounded px-2 py-1 w-1/2 focus:outline-none focus:border-indigo-400"
-                            value={applicant[f.key]}
-                            onChange={(e) => updateField(f.key, Number(e.target.value))}
+                            value={applicant[f.key] ?? ""}
+                            onChange={(e) => updateField(f.key, e.target.value === "" ? "" : Number(e.target.value))}
                           />
                         )}
                       </div>
@@ -515,7 +550,7 @@ export default function FinancialAdvisorAgent() {
 
               {/* COLUMN 2 — DECISION */}
               <div className="space-y-5">
-                <div className="glass rounded-2xl p-5 pop shadow-lg shadow-slate-200/50" key={verdict + result.prediction.risk_probability}>
+                <div className="glass rounded-2xl p-5 pop shadow-lg shadow-slate-200/50" key={verdict + (result ? result.prediction.risk_probability : 0)}>
                   <div className="font-body text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-3">Decision</div>
                   <div className="flex items-center justify-between mb-4">
                     <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-body text-sm font-medium ${
@@ -526,23 +561,26 @@ export default function FinancialAdvisorAgent() {
                     </div>
                     <div className="text-right">
                       <div className="font-percentage text-3xl text-slate-900 leading-none">{animatedRisk.toFixed(0)}%</div>
-                      <div className="font-body text-xs text-slate-500 mt-1">estimated risk · {result.prediction.confidence} confidence</div>
+                      <div className="font-body text-xs text-slate-500 mt-1">
+                        estimated risk · {result ? result.prediction.confidence : "low"} confidence
+                      </div>
                     </div>
                   </div>
-                  <p className="font-body text-sm text-slate-700 border-t border-slate-200/70 pt-3">{result.explanation.summary}</p>
+                  <p className="font-body text-sm text-slate-700 border-t border-slate-200/70 pt-3">
+                    {result ? result.explanation.summary : "No matrix data loaded currently."}
+                  </p>
                 </div>
 
                 <div className="glass rounded-2xl p-5 shadow-lg shadow-slate-200/50">
                   <h3 className="font-display text-base italic text-slate-800 mb-4">Reasons — what tipped the scale</h3>
-                  <BalanceBeam shapValues={result.shap_values} />
+                  <BalanceBeam shapValues={result ? result.shap_values : []} />
                 </div>
               </div>
 
-              {/* COLUMN 3 — TERMINAL LOGIC INTERFACE (MODIFIED FOR AI INTERACTIVE GLOW) */}
+              {/* COLUMN 3 — TERMINAL LOGIC INTERFACE */}
               <div className="glass rounded-2xl p-5 shadow-lg flex flex-col ai-interactive-glow border border-indigo-100/40 bg-white/80" style={{ minHeight: "420px" }}>
                 <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/70">
                   <div className="flex items-center gap-3">
-                    {/* Animated Pulsing Icon Ring Anchor */}
                     <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 relative">
                       <div className="absolute inset-0 rounded-full bg-indigo-500 radar-ring" />
                       <Sparkles size={16} className="text-white relative z-10 animate-pulse" />
@@ -553,6 +591,11 @@ export default function FinancialAdvisorAgent() {
                       </div>
                       <div className="font-body text-[10px] text-slate-400 font-semibold tracking-wide uppercase">Attribution Verification</div>
                     </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 font-body text-[10px] font-medium tracking-wide">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping" />
+                    INTERACTIVE
                   </div>
                 </div>
 
