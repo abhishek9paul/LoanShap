@@ -47,8 +47,8 @@ def train_model() -> dict[str, float]:
     predictions = model.predict(X_test)
     probabilities = model.predict_proba(X_test)[:, 1]
     metrics = {
-        "accuracy": accuracy_score(y_test, predictions),
-        "roc_auc": roc_auc_score(y_test, probabilities),
+        "accuracy": float(accuracy_score(y_test, predictions)),
+        "roc_auc": float(roc_auc_score(y_test, probabilities)),
     }
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)

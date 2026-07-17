@@ -78,6 +78,7 @@ class ShapFactor(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     feature: str
+    display_name: str
     impact: float
     direction: ShapDirection
     feature_value: str | int | float | None = None
@@ -95,7 +96,8 @@ class PredictionResponse(BaseModel):
         description="Probability of loan approval.",
     )
     risk_level: RiskLevel
-    top_factors: list[ShapFactor] = Field(default_factory=list)
+    positive_factors: list[ShapFactor] = Field(default_factory=list)
+    negative_factors: list[ShapFactor] = Field(default_factory=list)
 
 
 class ExplanationResponse(BaseModel):

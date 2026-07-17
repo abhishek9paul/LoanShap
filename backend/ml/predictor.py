@@ -28,6 +28,21 @@ PREPROCESSOR_PATH = MODELS_DIR / "preprocessing_artifacts.joblib"
 _MODEL = joblib.load(MODEL_PATH)
 _PREPROCESSING_ARTIFACTS = joblib.load(PREPROCESSOR_PATH)
 _EXPLAINER = shap.TreeExplainer(_MODEL)
+_FEATURE_DISPLAY_NAMES = {
+    "person_age": "Person Age",
+    "person_gender": "Gender",
+    "person_education": "Education",
+    "person_income": "Annual Income",
+    "person_emp_exp": "Employment Experience",
+    "person_home_ownership": "Home Ownership",
+    "loan_amnt": "Loan Amount",
+    "loan_intent": "Loan Purpose",
+    "loan_int_rate": "Interest Rate",
+    "loan_percent_income": "Loan Percent of Income",
+    "cb_person_cred_hist_length": "Credit History Length",
+    "credit_score": "Credit Score",
+    "previous_loan_defaults_on_file": "Previous Loan Default On File",
+}
 
 
 def _to_python(value: Any) -> Any:
@@ -49,7 +64,7 @@ def _get_risk_level(probability: float) -> RiskLevel:
 def _build_top_factors(
     applicant: dict[str, Any],
     transformed_row,
-) -> list[ShapFactor]:
+) -> tuple[list[ShapFactor], list[ShapFactor]]:
     shap_values = _EXPLAINER.shap_values(transformed_row)
     if isinstance(shap_values, list):
         shap_array = np.asarray(shap_values[1])[0]
@@ -65,6 +80,7 @@ def _build_top_factors(
         factors.append(
             ShapFactor(
                 feature=feature_name,
+                display_name=_FEATURE_DISPLAY_NAMES.get(feature_name, feature_name),
                 feature_value=_to_python(applicant[feature_name]),
                 impact=float(_to_python(impact)),
                 direction=ShapDirection.POSITIVE if impact >= 0 else ShapDirection.NEGATIVE,
@@ -72,7 +88,10 @@ def _build_top_factors(
         )
 
     factors.sort(key=lambda item: abs(item.impact), reverse=True)
-    return factors[:6]
+    top_factors = factors[:6]
+    positive_factors = [factor for factor in top_factors if factor.impact >= 0]
+    negative_factors = [factor for factor in top_factors if factor.impact < 0]
+    return positive_factors, negative_factors
 
 
 def predict_loan(applicant: dict[str, Any]) -> dict[str, Any]:
@@ -82,11 +101,13 @@ def predict_loan(applicant: dict[str, Any]) -> dict[str, Any]:
 
     prediction = int(_to_python(_MODEL.predict(transformed_row)[0]))
     probability = float(_to_python(_MODEL.predict_proba(transformed_row)[0][1]))
+    positive_factors, negative_factors = _build_top_factors(applicant_data, transformed_row)
     response = PredictionResponse(
         prediction=prediction,
         approval_label="approved" if prediction == 1 else "rejected",
         probability=probability,
         risk_level=_get_risk_level(probability),
-        top_factors=_build_top_factors(applicant_data, transformed_row),
+        positive_factors=positive_factors,
+        negative_factors=negative_factors,
     )
-    return response.model_dump()
+    return response.model_dump(mode="json")
