@@ -29,22 +29,6 @@ const FONT_IMPORT = `
     100% { opacity: 1; letter-spacing: -0.01em; filter: blur(0); }
   }
 
-  @keyframes insightPulse {
-    0%, 100% { 
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(99, 102, 241, 0.15);
-      border-color: rgba(99, 102, 241, 0.25);
-    }
-    50% { 
-      box-shadow: 0 20px 30px -5px rgba(99, 102, 241, 0.12), 0 10px 14px -6px rgba(99, 102, 241, 0.08), 0 0 14px 2px rgba(99, 102, 241, 0.22);
-      border-color: rgba(99, 102, 241, 0.5);
-    }
-  }
-
-  @keyframes signalRadar {
-    0% { transform: scale(0.95); opacity: 1; }
-    100% { transform: scale(1.8); opacity: 0; }
-  }
-
   .blob-a { animation: driftA 14s ease-in-out infinite; }
   .blob-b { animation: driftB 17s ease-in-out infinite; }
   .rise { animation: riseIn 0.5s ease both; }
@@ -63,14 +47,10 @@ const FONT_IMPORT = `
     -webkit-backdrop-filter: blur(14px);
   }
 
-  .radar-ring {
-    animation: signalRadar 2s infinite cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
   .cursor-none-zone, .cursor-none-zone * { cursor: none !important; }
 
   @media (prefers-reduced-motion: reduce) {
-    .blob-a, .blob-b, .rise, .pop, .animate-title, .ai-interactive-glow, .radar-ring { animation: none !important; }
+    .blob-a, .blob-b, .rise, .pop, .animate-title { animation: none !important; }
   }
 `;
 
@@ -213,7 +193,7 @@ function BalanceBeam({ shapValues }) {
                     className="h-full bg-rose-600 rounded-l flex items-center justify-start pl-2 transition-all duration-700 ease-out"
                     style={{ width: `${pct}%` }}
                   >
-                    <span className="font-body text-[11px] font-semibold text-white whitespace-nowrap">{s.impact.toFixed(2)}</span>
+                    <span className="font-body text-[11px] font-semibold text-black whitespace-nowrap">{s.impact.toFixed(2)}</span>
                   </div>
                 )}
               </div>
@@ -223,7 +203,7 @@ function BalanceBeam({ shapValues }) {
                     className="h-full bg-emerald-700 rounded-r flex items-center justify-end pr-2 transition-all duration-700 ease-out"
                     style={{ width: `${pct}%` }}
                   >
-                    <span className="font-body text-[11px] font-semibold text-white whitespace-nowrap">+{s.impact.toFixed(2)}</span>
+                    <span className="font-body text-[11px] font-semibold text-black whitespace-nowrap">+{s.impact.toFixed(2)}</span>
                   </div>
                 )}
               </div>
@@ -648,12 +628,11 @@ export default function FinancialAdvisorAgent() {
               </div>
 
               {/* COLUMN 3 — TERMINAL LOGIC INTERFACE */}
-              <div className="glass rounded-2xl p-5 shadow-lg flex flex-col ai-interactive-glow border border-indigo-100/40 bg-white/80 min-h-[420px]">
+              <div className="glass rounded-2xl p-5 shadow-lg flex flex-col border border-indigo-100/40 bg-white/80 min-h-[420px]">
                 <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/70">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 relative">
-                      <div className="absolute inset-0 rounded-full bg-indigo-500 radar-ring" />
-                      <Sparkles size={16} className="text-white relative z-10 animate-pulse" />
+                      <Sparkles size={16} className="text-white relative z-10" />
                     </div>
                     <div>
                       <div className="font-display text-base italic text-slate-900 leading-tight flex items-center gap-1.5">
@@ -704,7 +683,7 @@ export default function FinancialAdvisorAgent() {
                   <div className="mt-4 pt-4 border-t border-slate-200/70 rise">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        <Sparkles size={14} className="text-indigo-600 animate-pulse" />
+                        <Sparkles size={14} className="text-indigo-600" />
                         <h3 className="font-display text-sm italic text-slate-800">DiCE Counterfactual Paths</h3>
                       </div>
                       <button
@@ -723,7 +702,7 @@ export default function FinancialAdvisorAgent() {
                     {generatingDice ? (
                       <div className="space-y-2">
                         {[0, 1, 2].map((i) => (
-                          <div key={i} className="bg-slate-50 border border-slate-200/60 rounded-xl p-3 h-20 animate-pulse" />
+                          <div key={i} className="bg-slate-50 border border-slate-200/60 rounded-xl p-3 h-20" />
                         ))}
                       </div>
                     ) : diceScenarios.length > 0 ? (
