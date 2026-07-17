@@ -74,6 +74,16 @@ const FONT_IMPORT = `
   }
 `;
 
+/* ============================================================
+   BACKEND ENDPOINTS
+   Swap these to your teammates' real URLs (or wire up a .env
+   with VITE_PREDICT_API / VITE_ASK_API / VITE_DICE_API and use
+   import.meta.env.VITE_PREDICT_API instead of hardcoding).
+   ============================================================ */
+const PREDICT_API = "http://localhost:5000/predict";
+const ASK_API = "http://localhost:5001/ask";
+const DICE_API = "http://localhost:5000/api/dice";
+
 // Integrated Indian Rupees (₹) and clamped maximum parameter boundary settings at 8 Lakhs
 const FIELD_META = [
   { key: "person_age", label: "Age", type: "number", min: 18, max: 100 },
@@ -240,6 +250,10 @@ export default function FinancialAdvisorAgent() {
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState("");
 
+  // DiCE counterfactual state
+  const [diceScenarios, setDiceScenarios] = useState([]);
+  const [generatingDice, setGeneratingDice] = useState(false);
+
   const chatEndRef = useRef(null);
   const animatedRisk = useCountUp(result ? result.prediction.risk_probability * 100 : 0);
 
@@ -258,12 +272,12 @@ export default function FinancialAdvisorAgent() {
       dynamicTyping: true,
       complete: (results) => {
         if (!results.data || results.data.length === 0) return;
-        
+
         const parsedRows = results.data.map((row, index) => {
           const incomeVal = Math.min(800000, row.person_income ?? 300000);
           const loanVal = Math.min(800000, row.loan_amnt ?? 50000);
           const calculatedRatio = incomeVal > 0 ? parseFloat((loanVal / incomeVal).toFixed(2)) : 0;
-          
+
           return {
             label: `Applicant ${index + 1}`,
             data: {
@@ -299,6 +313,7 @@ export default function FinancialAdvisorAgent() {
     setApplicant(applicants[index].data);
     setResult(runMockAssessment(applicants[index].data));
     setMessages([]);
+    setDiceScenarios([]);
   }
 
   function updateField(key, value, meta) {
@@ -311,26 +326,73 @@ export default function FinancialAdvisorAgent() {
 
     setApplicant((prev) => ({ ...prev, [key]: sanitizedValue }));
     setSelectedSample("");
+    setDiceScenarios([]);
   }
 
-  function runAssessment() {
+  async function runAssessment() {
     setLoading(true);
     setMessages([]);
-    setTimeout(() => {
+    setDiceScenarios([]);
+    try {
+      const res = await fetch(PREDICT_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(applicant),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      setResult(data); // expects { prediction, shap_values, explanation }
+    } catch (err) {
+      console.error("Prediction failed, using fallback mock:", err);
       setResult(runMockAssessment(applicant));
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   }
 
-  function askQuestion(e) {
+  async function askQuestion(e) {
     e.preventDefault();
     if (!question.trim()) return;
     const q = question.trim();
     setMessages((m) => [...m, { role: "user", text: q }]);
     setQuestion("");
-    setTimeout(() => {
+
+    try {
+      const res = await fetch(ASK_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: q,
+          shap_json: result,
+          previous_explanation: result?.explanation?.summary || "",
+        }),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      setMessages((m) => [...m, { role: "agent", text: data.answer }]);
+    } catch (err) {
+      console.error("Follow-up failed, using fallback mock:", err);
       setMessages((m) => [...m, { role: "agent", text: mockAnswerFollowup(q, result) }]);
-    }, 400);
+    }
+  }
+
+  async function triggerCounterfactualAnalysis() {
+    setGeneratingDice(true);
+    try {
+      const res = await fetch(DICE_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_applicant: applicant }),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      setDiceScenarios(data.scenarios || []);
+    } catch (err) {
+      console.error("DiCE generation failed:", err);
+      setDiceScenarios([]);
+    } finally {
+      setGeneratingDice(false);
+    }
   }
 
   const verdict = result ? result.prediction.verdict : "PENDING";
@@ -586,7 +648,7 @@ export default function FinancialAdvisorAgent() {
               </div>
 
               {/* COLUMN 3 — TERMINAL LOGIC INTERFACE */}
-              <div className="glass rounded-2xl p-5 shadow-lg flex flex-col ai-interactive-glow border border-indigo-100/40 bg-white/80" style={{ minHeight: "420px" }}>
+              <div className="glass rounded-2xl p-5 shadow-lg flex flex-col ai-interactive-glow border border-indigo-100/40 bg-white/80 min-h-[420px]">
                 <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/70">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 relative">
@@ -625,7 +687,7 @@ export default function FinancialAdvisorAgent() {
                   <div ref={chatEndRef} />
                 </div>
 
-                <form onSubmit={askQuestion} className="flex gap-2 mt-auto">
+                <form onSubmit={askQuestion} className="flex gap-2 mt-2">
                   <input
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
@@ -636,6 +698,65 @@ export default function FinancialAdvisorAgent() {
                     <Send size={15} />
                   </button>
                 </form>
+
+                {/* DICE COUNTERFACTUAL PANEL — lives inside column 3, below the chat */}
+                {verdict === "REJECTED" && (
+                  <div className="mt-4 pt-4 border-t border-slate-200/70 rise">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={14} className="text-indigo-600 animate-pulse" />
+                        <h3 className="font-display text-sm italic text-slate-800">DiCE Counterfactual Paths</h3>
+                      </div>
+                      <button
+                        onClick={triggerCounterfactualAnalysis}
+                        disabled={generatingDice}
+                        className="text-[10px] font-body bg-indigo-600 text-white px-2 py-1 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 shadow-sm"
+                      >
+                        {generatingDice ? "Optimizing..." : "Generate Alternatives"}
+                      </button>
+                    </div>
+
+                    <p className="font-body text-[11px] text-slate-500 mb-3 leading-relaxed">
+                      Minimal attribute shifts that would pivot this verdict to an Approval.
+                    </p>
+
+                    {generatingDice ? (
+                      <div className="space-y-2">
+                        {[0, 1, 2].map((i) => (
+                          <div key={i} className="bg-slate-50 border border-slate-200/60 rounded-xl p-3 h-20 animate-pulse" />
+                        ))}
+                      </div>
+                    ) : diceScenarios.length > 0 ? (
+                      <div className="space-y-2">
+                        {diceScenarios.map((scenario, idx) => (
+                          <div key={idx} className="bg-slate-50 border border-slate-200/60 rounded-xl p-3 text-[11px] font-body pop">
+                            <div className="font-semibold text-indigo-700 mb-1">Pathway #{idx + 1}</div>
+                            <div className="space-y-0.5 text-slate-600">
+                              {Object.keys(scenario).map((key) => {
+                                const isChanged = scenario[key] !== applicant[key];
+                                if (!FEATURE_LABELS[key]) return null;
+                                return (
+                                  <div key={key} className={`flex justify-between py-0.5 ${isChanged ? "bg-amber-50 font-medium text-amber-900 px-1 rounded" : ""}`}>
+                                    <span>{FEATURE_LABELS[key]}:</span>
+                                    <span>
+                                      {key.includes("income") || key.includes("amnt")
+                                        ? `₹${Number(scenario[key]).toLocaleString("en-IN")}`
+                                        : scenario[key]}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center font-body text-[11px] text-slate-400 py-3 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                        Awaiting alternative optimization...
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
