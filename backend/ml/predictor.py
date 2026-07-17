@@ -12,7 +12,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.ml.preprocessing import transform_new_applicant
-from backend.ml.schemas import LoanApplicationRequest
+from backend.ml.schemas import (
+    LoanApplicationRequest,
+    PredictionResponse,
+    RiskLevel,
+    ShapDirection,
+    ShapFactor,
+)
 
 
 MODELS_DIR = PROJECT_ROOT / "backend" / "models"
@@ -32,7 +38,18 @@ def _to_python(value: Any) -> Any:
     return value
 
 
-def _build_top_factors(applicant: dict[str, Any], transformed_row) -> list[dict[str, Any]]:
+def _get_risk_level(probability: float) -> RiskLevel:
+    if probability >= 0.7:
+        return RiskLevel.LOW
+    if probability >= 0.4:
+        return RiskLevel.MEDIUM
+    return RiskLevel.HIGH
+
+
+def _build_top_factors(
+    applicant: dict[str, Any],
+    transformed_row,
+) -> list[ShapFactor]:
     shap_values = _EXPLAINER.shap_values(transformed_row)
     if isinstance(shap_values, list):
         shap_array = np.asarray(shap_values[1])[0]
@@ -43,18 +60,18 @@ def _build_top_factors(applicant: dict[str, Any], transformed_row) -> list[dict[
         elif shap_array.ndim == 2:
             shap_array = shap_array[0]
 
-    factors = []
+    factors: list[ShapFactor] = []
     for feature_name, impact in zip(_PREPROCESSING_ARTIFACTS.feature_columns, shap_array):
         factors.append(
-            {
-                "feature": feature_name,
-                "feature_value": _to_python(applicant[feature_name]),
-                "impact": float(impact),
-                "direction": "positive" if impact >= 0 else "negative",
-            }
+            ShapFactor(
+                feature=feature_name,
+                feature_value=_to_python(applicant[feature_name]),
+                impact=float(_to_python(impact)),
+                direction=ShapDirection.POSITIVE if impact >= 0 else ShapDirection.NEGATIVE,
+            )
         )
 
-    factors.sort(key=lambda item: abs(item["impact"]), reverse=True)
+    factors.sort(key=lambda item: abs(item.impact), reverse=True)
     return factors[:6]
 
 
@@ -63,13 +80,13 @@ def predict_loan(applicant: dict[str, Any]) -> dict[str, Any]:
     applicant_data = validated.model_dump()
     transformed_row = transform_new_applicant(applicant_data, _PREPROCESSING_ARTIFACTS)
 
-    prediction = int(_MODEL.predict(transformed_row)[0])
-    probability = float(_MODEL.predict_proba(transformed_row)[0][1])
-    confidence = probability if prediction == 1 else 1.0 - probability
-
-    return {
-        "prediction": prediction,
-        "probability": probability,
-        "confidence": float(confidence),
-        "top_factors": _build_top_factors(applicant_data, transformed_row),
-    }
+    prediction = int(_to_python(_MODEL.predict(transformed_row)[0]))
+    probability = float(_to_python(_MODEL.predict_proba(transformed_row)[0][1]))
+    response = PredictionResponse(
+        prediction=prediction,
+        approval_label="approved" if prediction == 1 else "rejected",
+        probability=probability,
+        risk_level=_get_risk_level(probability),
+        top_factors=_build_top_factors(applicant_data, transformed_row),
+    )
+    return response.model_dump()
