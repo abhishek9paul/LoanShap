@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
-from backend.ml.predictor import predict_loan
-from backend.ml.schemas import LoanApplicationRequest, PredictionResponse
+from ml.predictor import predict_loan
+from ml.schemas import LoanApplicationRequest, PredictionResponse
 
 
 router = APIRouter(tags=["prediction"])
