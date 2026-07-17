@@ -638,10 +638,6 @@ export default function FinancialAdvisorAgent() {
                 </form>
               </div>
             </div>
-
-            <div className="text-center font-body text-[11px] font-medium text-slate-400 pt-8">
-              XGBoost classifier · SHAP TreeExplainer Matrix Layer
-            </div>
           </div>
         </div>
 
