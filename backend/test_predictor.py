@@ -1,5 +1,5 @@
-from backend.ml.predictor import predict_loan
-from backend.ml.schemas import (
+from ml.predictor import predict_loan
+from ml.schemas import (
     LoanApplicationRequest,
     PersonGender,
     PersonEducation,
