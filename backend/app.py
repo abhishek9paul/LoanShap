@@ -1,15 +1,13 @@
 from fastapi import FastAPI
 
-app = FastAPI(
-    title="LoanShap API",
-    version="1.0.0",
-    description="Explainable AI Loan Approval Backend"
-)
+from api.explain import router
+
+app = FastAPI()
+
+app.include_router(router)
+
 
 @app.get("/")
 def home():
-    return {
-        "project": "LoanShap",
-        "status": "Running",
-        "version": "1.0.0"
-    }
+
+    return {"status":"LoanShap Running"}
