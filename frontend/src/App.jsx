@@ -51,8 +51,8 @@ const FONT_IMPORT = `
   }
 `;
 
-// Backend endpoints — swap for real URLs or wire up VITE_* env vars
-const API_BASE = "http://localhost:8000";
+// Backend endpoint — set VITE_API_BASE in your deploy env, falls back to localhost for dev
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const PREDICT_API = `${API_BASE}/predict`;
 const ASK_API = `${API_BASE}/ask`;
 const DICE_API = `${API_BASE}/api/dice`;
