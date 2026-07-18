@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from agents.groq_client import ask_groq
+from agents.prompts import build_chat_prompt, LEDGER_SYSTEM_PROMPT
 
 router = APIRouter()
 
@@ -11,20 +12,8 @@ class Question(BaseModel):
 @router.post("/ask")
 def ask(data: Question):
 
-    prompt = f"""
-You are LoanShap.
-
-Prediction Context:
-{data.context}
-
-User Question:
-{data.question}
-
-Answer using ONLY the prediction context.
-If the answer cannot be determined, say so.
-"""
-
-    answer = ask_groq(prompt)
+    prompt = build_chat_prompt(data.question, data.context)
+    answer = ask_groq(prompt, system_prompt=LEDGER_SYSTEM_PROMPT)
 
     return {
         "answer": answer
