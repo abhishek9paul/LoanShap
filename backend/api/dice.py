@@ -12,8 +12,7 @@ class CounterfactualRequest(BaseModel):
     current_applicant: Dict[str, Any]
 
 
-# Each nudge is a (description, function) pair. Function takes the
-# applicant dict and returns a MODIFIED COPY.
+# Each nudge takes an applicant dict and returns a modified copy
 def _raise_credit_score(a: dict) -> dict:
     b = copy.deepcopy(a)
     b["credit_score"] = min(850, b.get("credit_score", 600) + 60)
@@ -41,8 +40,7 @@ def _extend_credit_history(a: dict) -> dict:
 
 
 def _combo_moderate(a: dict) -> dict:
-    """Smaller nudges across two fields at once — often the most
-    realistic path since it doesn't require one dramatic change."""
+    """Smaller nudges across two fields at once."""
     b = copy.deepcopy(a)
     b["credit_score"] = min(850, b.get("credit_score", 600) + 30)
     income = b.get("person_income", 1) or 1
@@ -70,17 +68,10 @@ def generate_counterfactuals(data: CounterfactualRequest):
         candidate = nudge(original)
         try:
             result = predict_loan(candidate)
-            # predict_loan() returns PredictionResponse.model_dump(mode="json"),
-            # i.e. a FLAT dict like {"prediction": 1, "approval_label": "approved", ...}.
-            # There is no nested result["prediction"]["verdict"] — "prediction" is
-            # just the raw int (0/1). approval_label is the human-readable field
-            # ("approved" / "rejected") and is what we actually want here.
+            # result is a flat dict; approval_label is "approved"/"rejected"
             verdict = result.get("approval_label") if isinstance(result, dict) else None
         except Exception as e:
-            # If predict_loan's expected input shape differs, skip this
-            # candidate rather than crashing the whole request — but log
-            # it, otherwise an all-failing run looks identical to an
-            # all-succeeding-but-no-flip run from the outside.
+            # Skip candidates that fail rather than crash the whole request
             errors += 1
             print(f"[dice] {nudge.__name__} failed: {type(e).__name__}: {e}")
 

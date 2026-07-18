@@ -8,10 +8,7 @@ import RandomLetterSwap from "./RandomLetterSwap";
 import UserCursor from "./UserCursor";
 import Snowfall from "./Snowfall";
 
-/* ============================================================
-   DESIGN SYSTEM — "The Underwriting Ledger"
-   ============================================================ */
-
+// Design system — "The Underwriting Ledger"
 const FONT_IMPORT = `
   @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,500;0,600;1,500;1,600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
@@ -54,19 +51,14 @@ const FONT_IMPORT = `
   }
 `;
 
-/* ============================================================
-   BACKEND ENDPOINTS
-   Swap these to your teammates' real URLs (or wire up a .env
-   with VITE_PREDICT_API / VITE_ASK_API / VITE_DICE_API and use
-   import.meta.env.VITE_PREDICT_API instead of hardcoding).
-   ============================================================ */
+// Backend endpoints — swap for real URLs or wire up VITE_* env vars
 const API_BASE = "http://localhost:8000";
 const PREDICT_API = `${API_BASE}/predict`;
 const ASK_API = `${API_BASE}/ask`;
 const DICE_API = `${API_BASE}/api/dice`;
 const EXPLAIN_API = `${API_BASE}/explain`;
 
-// Integrated Indian Rupees (₹) and clamped maximum parameter boundary settings at 8 Lakhs
+// Amounts in INR (₹), loan amount capped at 8 Lakhs
 const FIELD_META = [
   { key: "person_age", label: "Age", type: "number", min: 18, max: 100 },
   { key: "person_gender", label: "Gender", type: "select", options: ["male", "female"] },
@@ -77,9 +69,7 @@ const FIELD_META = [
   { key: "loan_amnt", label: "Loan amount (₹)", type: "number", min: 5000, max: 800000 },
   { key: "loan_intent", label: "Loan purpose", type: "select", options: ["EDUCATION", "MEDICAL", "PERSONAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"] },
   { key: "loan_int_rate", label: "Interest rate (%)", type: "number", min: 1, max: 35, step: 0.1 },
-  // loan_percent_income intentionally removed from here — it's auto-calculated
-  // from person_income and loan_amnt (see the useEffect below) and rendered
-  // as a read-only field instead of an editable one.
+  // loan_percent_income omitted — auto-derived and read-only (see useEffect below)
   { key: "cb_person_cred_hist_length", label: "Credit history length (yrs)", type: "number", min: 0, max: 50 },
   { key: "credit_score", label: "Credit score", type: "number", min: 300, max: 850 },
   { key: "previous_loan_defaults_on_file", label: "Prior default on file", type: "select", options: ["No", "Yes"] },
@@ -111,24 +101,19 @@ const INITIAL_FALLBACK_DATA = {
   cb_person_cred_hist_length: 4, credit_score: 645
 };
 
-// How sure the model is about its own verdict — far from the 50/50 line
-// means high confidence, close to it means the case is a toss-up. This is
-// NOT the same thing as "how risky the applicant is" (see riskLevelFromProbability).
+// Confidence: how far the probability sits from 50/50 (not the same as risk)
 function confidenceFromProbability(risk_probability) {
   const distanceFromMid = Math.abs(0.5 - risk_probability);
   return distanceFromMid > 0.25 ? "high" : distanceFromMid > 0.1 ? "medium" : "low";
 }
 
-// How risky the applicant is, independent of how sure the model is about it.
-// A prediction can be "high confidence" and "low risk" at the same time —
-// e.g. 0.02 risk_probability is both very low risk AND a confident call.
+// Risk level, independent of confidence
 function riskLevelFromProbability(risk_probability) {
   return risk_probability < 0.33 ? "low" : risk_probability < 0.66 ? "medium" : "high";
 }
 
 function runMockAssessment(a) {
   if (!a || Object.keys(a).length === 0) return null;
-  // Normalized contribution weights configured to safely parse scaled regional variables
   const contributions = [
     { feature: "credit_score", impact: ((a.credit_score - 620) / 230) * 0.34, value: a.credit_score },
     { feature: "loan_percent_income", impact: -(a.loan_percent_income - 0.25) * 0.9, value: a.loan_percent_income },
@@ -177,21 +162,8 @@ function mockAnswerFollowup(question, result) {
   return `I don't have a specific factor matching that in this decision. The largest driver here was ${FEATURE_LABELS[top.feature].toLowerCase()}, contributing ${top.impact >= 0 ? "+" : ""}${top.impact.toFixed(2)} toward the outcome.`;
 }
 
-/* ------------------------------------------------------------
-   Converts the REAL backend response shape:
-     { prediction: 0|1, approval_label, probability, risk_level,
-       positive_factors: [...], negative_factors: [...] }
-   into the shape the rest of this UI is built around:
-     { prediction: {verdict, risk_probability, confidence, risk_level},
-       shap_values: [...], explanation: {summary, top_factors} }
-   `confidence` = how sure the model is about its verdict (computed here).
-   `risk_level` = how risky the applicant is (from the backend, or derived).
-   These are NOT the same thing and should not share a value.
-   ------------------------------------------------------------ */
-// The /explain call's LLM narration sometimes defaults to "$" since it
-// isn't told the currency — this is a client-side safety net. The real
-// fix is telling the model explicitly in agents/explainer.py's prompt
-// that all amounts are INR, but this catches it either way.
+// Converts the backend's raw response shape into the shape the UI expects
+// Client-side safety net in case the LLM explanation defaults to "$"
 function toINR(text) {
   if (!text) return text;
   return text.replace(/\$\s?([\d,]+(\.\d+)?)/g, "₹$1");
@@ -199,14 +171,7 @@ function toINR(text) {
 
 function normalizeBackendResponse(raw, explanationText) {
   const verdict = raw.approval_label.toUpperCase();
-  // Per backend/ml/predictor.py: `probability` is ALWAYS
-  // predict_proba(...)[0][1] — the model's confidence in class 1, and
-  // class 1 is hardcoded to mean "approved" (approval_label = "approved"
-  // if prediction == 1 else "rejected"). So `probability` always means
-  // "probability of approval," regardless of which way the verdict
-  // landed — risk is unconditionally its complement. No branching here;
-  // branching on verdict was the bug (it left "rejected, 14% risk"
-  // on screen when the true risk was 86%).
+  // `probability` is always probability of approval; risk is its complement
   const risk_probability = Number((1 - raw.probability).toFixed(2));
 
   const shap_values = [
@@ -329,9 +294,7 @@ export default function FinancialAdvisorAgent() {
     }
   }, [messages]);
 
-  // Loan / income ratio is derived, never typed directly — recompute it
-  // any time income or loan amount changes, including sample selection
-  // and CSV loads.
+  // Recompute loan/income ratio whenever income or loan amount changes
   useEffect(() => {
     const income = Number(applicant.person_income) || 0;
     const loan = Number(applicant.loan_amnt) || 0;
@@ -342,7 +305,7 @@ export default function FinancialAdvisorAgent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applicant.person_income, applicant.loan_amnt]);
 
-  // Ingests CSV variables safely, clamping values over 8 Lakhs to stay within constraints
+  // Load demo applicants from CSV, clamping values over 8 Lakhs
   useEffect(() => {
     Papa.parse("/demo.csv", {
       download: true,
@@ -399,9 +362,7 @@ export default function FinancialAdvisorAgent() {
   }
 
   function updateField(key, value, meta) {
-    // Don't clamp here — clamping mid-keystroke snaps "3" to 300 before
-    // you can type the rest of the number. Store the raw value while
-    // typing, clamp only when the field loses focus (see clampField below).
+    // Don't clamp mid-keystroke; clamp on blur instead (see clampField)
     setApplicant((prev) => ({ ...prev, [key]: value }));
     setSelectedSample("");
     setDiceScenarios([]);
@@ -498,13 +459,9 @@ export default function FinancialAdvisorAgent() {
       if (scenarios.length > 0) {
         setDiceStatus("idle");
       } else if (data.errors > 0) {
-        // Every candidate threw inside predict_loan — check the backend
-        // console for "[dice] <nudge> failed: ..." to see why.
-        setDiceStatus("errored");
+        setDiceStatus("errored"); // candidates threw server-side
       } else {
-        // Every candidate ran fine but none flipped the verdict — a
-        // real (if underwhelming) result, not a bug.
-        setDiceStatus("empty");
+        setDiceStatus("empty"); // ran fine, none flipped the verdict
       }
     } catch (err) {
       console.error("DiCE generation failed:", err);
@@ -533,7 +490,7 @@ export default function FinancialAdvisorAgent() {
         style={{ transform: viewMode === "landing" ? "translateX(0)" : "translateX(-100vw)" }}
       >
         
-        {/* ================= LANDING PORTAL PAGE ================= */}
+        {/* Landing portal page */}
         <div className="w-[100vw] h-screen shrink-0 relative overflow-hidden">
           <div className="absolute inset-0 z-0 pointer-events-none">
             <Snowfall
@@ -632,7 +589,7 @@ export default function FinancialAdvisorAgent() {
           </UserCursor>
         </div>
 
-        {/* ================= ANALYTICAL DASHBOARD PAGE ================= */}
+        {/* Analytical dashboard page */}
         <div className="w-[100vw] h-screen overflow-y-auto px-6 py-10 shrink-0">
           <div className="relative max-w-7xl mx-auto">
             <header className="mb-6 pb-6 flex justify-between items-end border-b border-slate-200/60">
@@ -728,7 +685,7 @@ export default function FinancialAdvisorAgent() {
                       </div>
                     ))}
 
-                    {/* Read-only — derived from loan amount / income, never typed directly */}
+                    {/* Read-only, derived from loan amount / income */}
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex flex-col w-1/2">
                         <label className="font-body text-xs text-slate-700">Loan / income ratio</label>

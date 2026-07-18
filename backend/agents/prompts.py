@@ -17,12 +17,7 @@ Maximum 100 words.
 """
 
 
-# ------------------------------------------------------------
-# The Ledger — persona + prompt builder for the conversational
-# /ask endpoint. Kept separate from build_prompt() above, which
-# is the tight, non-conversational one-shot used by /explain.
-# ------------------------------------------------------------
-
+# Persona + prompt builder for the conversational /ask endpoint
 LEDGER_SYSTEM_PROMPT = """
 You are the Ledger — LoanSHAP's built-in assistant. Your job is to help
 someone understand ONE loan decision: why it landed the way it did, what
