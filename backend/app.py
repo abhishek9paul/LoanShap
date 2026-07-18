@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
 from api.explain import router as explain_router
 from api.ask import router as ask_router
@@ -14,15 +15,14 @@ app = FastAPI(
     description="Explainable AI Loan Approval Backend"
 )
 
-# ------------------------------------------------------------
-# CORS — required because the frontend (Vite, localhost:5173)
-# and this API run on different origins. Without this, every
-# fetch() from the browser fails with a CORS error even though
-# curl/Postman requests work fine.
-# ------------------------------------------------------------
+# CORS — required since the frontend and this API run on different origins.
+# Set ALLOWED_ORIGINS (comma-separated) in production; defaults to "*" for local dev.
+_origins = os.getenv("ALLOWED_ORIGINS", "*")
+allow_origins = ["*"] if _origins == "*" else [o.strip() for o in _origins.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to ["http://localhost:5173"] before demo if you want
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
