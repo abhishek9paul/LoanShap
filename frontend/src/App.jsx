@@ -60,23 +60,29 @@ const FONT_IMPORT = `
    with VITE_PREDICT_API / VITE_ASK_API / VITE_DICE_API and use
    import.meta.env.VITE_PREDICT_API instead of hardcoding).
    ============================================================ */
-const PREDICT_API = "http://localhost:5000/predict";
-const ASK_API = "http://localhost:5001/ask";
-const DICE_API = "http://localhost:5000/api/dice";
+const API_BASE = "http://localhost:8000";
+const PREDICT_API = `${API_BASE}/predict`;
+const ASK_API = `${API_BASE}/ask`;
+const DICE_API = `${API_BASE}/api/dice`;
+const EXPLAIN_API = `${API_BASE}/explain`;
 
 // Integrated Indian Rupees (₹) and clamped maximum parameter boundary settings at 8 Lakhs
 const FIELD_META = [
   { key: "person_age", label: "Age", type: "number", min: 18, max: 100 },
-  { key: "person_income", label: "Annual income (₹)", type: "number", min: 0, max: 800000 },
+  { key: "person_gender", label: "Gender", type: "select", options: ["male", "female"] },
+  { key: "person_education", label: "Education", type: "select", options: ["High School", "Associate", "Bachelor", "Master", "Doctorate"] },
+  { key: "person_income", label: "Annual income (₹)", type: "number", min: 0 }, // no max — unbounded
+  { key: "person_emp_exp", label: "Employment experience (yrs)", type: "number", min: 0, max: 60 },
   { key: "person_home_ownership", label: "Home ownership", type: "select", options: ["RENT", "OWN", "MORTGAGE", "OTHER"] },
-  { key: "person_emp_length", label: "Employment length (yrs)", type: "number", min: 0, max: 60 },
-  { key: "loan_intent", label: "Loan purpose", type: "select", options: ["EDUCATION", "MEDICAL", "PERSONAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"] },
   { key: "loan_amnt", label: "Loan amount (₹)", type: "number", min: 5000, max: 800000 },
+  { key: "loan_intent", label: "Loan purpose", type: "select", options: ["EDUCATION", "MEDICAL", "PERSONAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"] },
   { key: "loan_int_rate", label: "Interest rate (%)", type: "number", min: 1, max: 35, step: 0.1 },
-  { key: "loan_percent_income", label: "Loan / income ratio", type: "number", min: 0, max: 1.0, step: 0.01 },
-  { key: "cb_person_default_on_file", label: "Prior default on file", type: "select", options: ["N", "Y"] },
+  // loan_percent_income intentionally removed from here — it's auto-calculated
+  // from person_income and loan_amnt (see the useEffect below) and rendered
+  // as a read-only field instead of an editable one.
   { key: "cb_person_cred_hist_length", label: "Credit history length (yrs)", type: "number", min: 0, max: 50 },
   { key: "credit_score", label: "Credit score", type: "number", min: 300, max: 850 },
+  { key: "previous_loan_defaults_on_file", label: "Prior default on file", type: "select", options: ["No", "Yes"] },
 ];
 
 const FEATURE_LABELS = {
@@ -84,21 +90,41 @@ const FEATURE_LABELS = {
   loan_percent_income: "Loan / income ratio",
   person_income: "Annual income",
   cb_person_default_on_file: "Prior default on file",
+  previous_loan_defaults_on_file: "Prior default on file",
   cb_person_cred_hist_length: "Credit history length",
   loan_int_rate: "Interest rate",
   person_emp_length: "Employment length",
+  person_emp_exp: "Employment experience",
   person_age: "Age",
+  person_gender: "Gender",
+  person_education: "Education",
   loan_amnt: "Loan amount",
   person_home_ownership: "Home ownership",
   loan_intent: "Loan purpose",
 };
 
 const INITIAL_FALLBACK_DATA = {
-  person_age: 29, person_income: 350000, person_home_ownership: "RENT",
-  person_emp_length: 3, loan_intent: "EDUCATION", loan_amnt: 80000,
-  loan_int_rate: 11.5, loan_percent_income: 0.23, cb_person_default_on_file: "N",
+  person_age: 29, person_gender: "female", person_education: "Bachelor",
+  person_income: 350000, person_home_ownership: "RENT",
+  person_emp_exp: 3, loan_intent: "EDUCATION", loan_amnt: 80000,
+  loan_int_rate: 11.5, loan_percent_income: 0.23, previous_loan_defaults_on_file: "No",
   cb_person_cred_hist_length: 4, credit_score: 645
 };
+
+// How sure the model is about its own verdict — far from the 50/50 line
+// means high confidence, close to it means the case is a toss-up. This is
+// NOT the same thing as "how risky the applicant is" (see riskLevelFromProbability).
+function confidenceFromProbability(risk_probability) {
+  const distanceFromMid = Math.abs(0.5 - risk_probability);
+  return distanceFromMid > 0.25 ? "high" : distanceFromMid > 0.1 ? "medium" : "low";
+}
+
+// How risky the applicant is, independent of how sure the model is about it.
+// A prediction can be "high confidence" and "low risk" at the same time —
+// e.g. 0.02 risk_probability is both very low risk AND a confident call.
+function riskLevelFromProbability(risk_probability) {
+  return risk_probability < 0.33 ? "low" : risk_probability < 0.66 ? "medium" : "high";
+}
 
 function runMockAssessment(a) {
   if (!a || Object.keys(a).length === 0) return null;
@@ -107,16 +133,16 @@ function runMockAssessment(a) {
     { feature: "credit_score", impact: ((a.credit_score - 620) / 230) * 0.34, value: a.credit_score },
     { feature: "loan_percent_income", impact: -(a.loan_percent_income - 0.25) * 0.9, value: a.loan_percent_income },
     { feature: "person_income", impact: (Math.min(a.person_income, 500000) / 500000 - 0.4) * 0.22, value: a.person_income },
-    { feature: "cb_person_default_on_file", impact: a.cb_person_default_on_file === "Y" ? -0.22 : 0.05, value: a.cb_person_default_on_file },
+    { feature: "previous_loan_defaults_on_file", impact: a.previous_loan_defaults_on_file === "Yes" ? -0.22 : 0.05, value: a.previous_loan_defaults_on_file },
     { feature: "cb_person_cred_hist_length", impact: (Math.min(a.cb_person_cred_hist_length, 15) / 15) * 0.13 - 0.03, value: a.cb_person_cred_hist_length },
     { feature: "loan_int_rate", impact: -((a.loan_int_rate - 10) / 15) * 0.12, value: a.loan_int_rate },
-    { feature: "person_emp_length", impact: (Math.min(a.person_emp_length, 10) / 10) * 0.09 - 0.02, value: a.person_emp_length },
+    { feature: "person_emp_exp", impact: (Math.min(a.person_emp_exp, 10) / 10) * 0.09 - 0.02, value: a.person_emp_exp },
   ];
   const score = contributions.reduce((sum, c) => sum + c.impact, 0);
   const riskProbability = 1 / (1 + Math.exp(score * 4));
   const verdict = riskProbability < 0.45 ? "APPROVED" : "REJECTED";
-  const distanceFromMid = Math.abs(0.5 - riskProbability);
-  const confidence = distanceFromMid > 0.25 ? "high" : distanceFromMid > 0.1 ? "medium" : "low";
+  const confidence = confidenceFromProbability(riskProbability);
+  const risk_level = riskLevelFromProbability(riskProbability);
 
   const shap_values = contributions
     .map((c) => ({
@@ -133,7 +159,7 @@ function runMockAssessment(a) {
     : `Declined, driven mainly by ${top[0].toLowerCase()} and ${top[1].toLowerCase()}.`;
 
   return {
-    prediction: { verdict, risk_probability: Number(riskProbability.toFixed(2)), confidence },
+    prediction: { verdict, risk_probability: Number(riskProbability.toFixed(2)), confidence, risk_level },
     shap_values,
     explanation: { summary, top_factors: shap_values.slice(0, 3).map((s) => s.feature) },
   };
@@ -149,6 +175,65 @@ function mockAnswerFollowup(question, result) {
   }
   const top = result.shap_values[0];
   return `I don't have a specific factor matching that in this decision. The largest driver here was ${FEATURE_LABELS[top.feature].toLowerCase()}, contributing ${top.impact >= 0 ? "+" : ""}${top.impact.toFixed(2)} toward the outcome.`;
+}
+
+/* ------------------------------------------------------------
+   Converts the REAL backend response shape:
+     { prediction: 0|1, approval_label, probability, risk_level,
+       positive_factors: [...], negative_factors: [...] }
+   into the shape the rest of this UI is built around:
+     { prediction: {verdict, risk_probability, confidence, risk_level},
+       shap_values: [...], explanation: {summary, top_factors} }
+   `confidence` = how sure the model is about its verdict (computed here).
+   `risk_level` = how risky the applicant is (from the backend, or derived).
+   These are NOT the same thing and should not share a value.
+   ------------------------------------------------------------ */
+// The /explain call's LLM narration sometimes defaults to "$" since it
+// isn't told the currency — this is a client-side safety net. The real
+// fix is telling the model explicitly in agents/explainer.py's prompt
+// that all amounts are INR, but this catches it either way.
+function toINR(text) {
+  if (!text) return text;
+  return text.replace(/\$\s?([\d,]+(\.\d+)?)/g, "₹$1");
+}
+
+function normalizeBackendResponse(raw, explanationText) {
+  const verdict = raw.approval_label.toUpperCase();
+  // Per backend/ml/predictor.py: `probability` is ALWAYS
+  // predict_proba(...)[0][1] — the model's confidence in class 1, and
+  // class 1 is hardcoded to mean "approved" (approval_label = "approved"
+  // if prediction == 1 else "rejected"). So `probability` always means
+  // "probability of approval," regardless of which way the verdict
+  // landed — risk is unconditionally its complement. No branching here;
+  // branching on verdict was the bug (it left "rejected, 14% risk"
+  // on screen when the true risk was 86%).
+  const risk_probability = Number((1 - raw.probability).toFixed(2));
+
+  const shap_values = [
+    ...raw.positive_factors.map((f) => ({ feature: f.feature, value: f.feature_value, impact: Math.abs(f.impact), direction: "positive" })),
+    ...raw.negative_factors.map((f) => ({ feature: f.feature, value: f.feature_value, impact: -Math.abs(f.impact), direction: "negative" })),
+  ]
+    .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
+    .slice(0, 6);
+
+  const top = shap_values.slice(0, 2).map((s) => FEATURE_LABELS[s.feature] || s.feature);
+  const fallbackSummary = verdict === "APPROVED"
+    ? `Approved, driven mainly by ${(top[0] || "").toLowerCase()} and ${(top[1] || "").toLowerCase()}.`
+    : `Declined, driven mainly by ${(top[0] || "").toLowerCase()} and ${(top[1] || "").toLowerCase()}.`;
+
+  return {
+    prediction: {
+      verdict,
+      risk_probability,
+      confidence: confidenceFromProbability(risk_probability),
+      risk_level: raw.risk_level || riskLevelFromProbability(risk_probability),
+    },
+    shap_values,
+    explanation: {
+      summary: explanationText && explanationText.trim() ? toINR(explanationText) : fallbackSummary,
+      top_factors: shap_values.slice(0, 3).map((s) => s.feature),
+    },
+  };
 }
 
 function useCountUp(target, duration = 650) {
@@ -243,6 +328,19 @@ export default function FinancialAdvisorAgent() {
     }
   }, [messages]);
 
+  // Loan / income ratio is derived, never typed directly — recompute it
+  // any time income or loan amount changes, including sample selection
+  // and CSV loads.
+  useEffect(() => {
+    const income = Number(applicant.person_income) || 0;
+    const loan = Number(applicant.loan_amnt) || 0;
+    const ratio = income > 0 ? Number((loan / income).toFixed(4)) : 0;
+    if (applicant.loan_percent_income !== ratio) {
+      setApplicant((prev) => ({ ...prev, loan_percent_income: ratio }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicant.person_income, applicant.loan_amnt]);
+
   // Ingests CSV variables safely, clamping values over 8 Lakhs to stay within constraints
   useEffect(() => {
     Papa.parse("/demo.csv", {
@@ -262,14 +360,16 @@ export default function FinancialAdvisorAgent() {
             label: `Applicant ${index + 1}`,
             data: {
               person_age: row.person_age ?? 30,
+              person_gender: row.person_gender || "female",
+              person_education: row.person_education || "Bachelor",
               person_income: incomeVal,
               person_home_ownership: row.person_home_ownership || "RENT",
-              person_emp_length: row.person_emp_exp ?? row.person_emp_length ?? 2,
+              person_emp_exp: row.person_emp_exp ?? row.person_emp_length ?? 2,
               loan_intent: row.loan_intent || "PERSONAL",
               loan_amnt: loanVal,
               loan_int_rate: row.loan_int_rate ?? row.loan_int_r ?? 12.0,
               loan_percent_income: row.loan_percent_income ?? row.loan_perce ?? calculatedRatio,
-              cb_person_default_on_file: row.previous_loan_defaults_on_file || row.cb_person || "N",
+              previous_loan_defaults_on_file: row.previous_loan_defaults_on_file || row.cb_person || "No",
               cb_person_cred_hist_length: row.cb_person_cred_hist_length ?? 4,
               credit_score: row.credit_sco ?? row.credit_score ?? 650,
             }
@@ -279,7 +379,7 @@ export default function FinancialAdvisorAgent() {
         setApplicants(parsedRows);
         setSelectedSample(0);
         setApplicant(parsedRows[0].data);
-        setResult(runMockAssessment(parsedRows[0].data));
+        runAssessment(parsedRows[0].data); // real /predict + /explain call, not the mock
       },
       error: (err) => {
         console.warn("CSV ingestion matrix warning context:", err);
@@ -290,41 +390,68 @@ export default function FinancialAdvisorAgent() {
   function handleDropdownChange(e) {
     const index = parseInt(e.target.value, 10);
     setSelectedSample(index);
-    setApplicant(applicants[index].data);
-    setResult(runMockAssessment(applicants[index].data));
+    const data = applicants[index].data;
+    setApplicant(data);
     setMessages([]);
     setDiceScenarios([]);
+    runAssessment(data); // real /predict + /explain call, not the mock
   }
 
   function updateField(key, value, meta) {
-    let sanitizedValue = value;
-
-    if (meta.type === "number" && value !== "") {
-      const num = Number(value);
-      sanitizedValue = Math.min(meta.max, Math.max(meta.min, num));
-    }
-
-    setApplicant((prev) => ({ ...prev, [key]: sanitizedValue }));
+    // Don't clamp here — clamping mid-keystroke snaps "3" to 300 before
+    // you can type the rest of the number. Store the raw value while
+    // typing, clamp only when the field loses focus (see clampField below).
+    setApplicant((prev) => ({ ...prev, [key]: value }));
     setSelectedSample("");
     setDiceScenarios([]);
   }
 
-  async function runAssessment() {
+  function clampField(key, meta) {
+    if (meta.type !== "number") return;
+    setApplicant((prev) => {
+      const raw = prev[key];
+      if (raw === "" || raw === undefined || raw === null) return prev;
+      const num = Number(raw);
+      if (Number.isNaN(num)) return prev;
+      const upper = meta.max != null ? meta.max : Infinity;
+      const clamped = Math.min(upper, Math.max(meta.min, num));
+      return { ...prev, [key]: clamped };
+    });
+  }
+
+  async function runAssessment(applicantOverride) {
+    const dataToSend = applicantOverride || applicant;
     setLoading(true);
     setMessages([]);
     setDiceScenarios([]);
     try {
-      const res = await fetch(PREDICT_API, {
+      const predictRes = await fetch(PREDICT_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(applicant),
+        body: JSON.stringify(dataToSend),
       });
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const data = await res.json();
-      setResult(data); // expects { prediction, shap_values, explanation }
+      if (!predictRes.ok) throw new Error(`Predict error: ${predictRes.status}`);
+      const rawPrediction = await predictRes.json();
+
+      let explanationText = "";
+      try {
+        const explainRes = await fetch(EXPLAIN_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prediction: rawPrediction }),
+        });
+        if (explainRes.ok) {
+          const explainData = await explainRes.json();
+          explanationText = explainData.explanation || "";
+        }
+      } catch (explainErr) {
+        console.warn("Explain call failed, falling back to auto-generated summary:", explainErr);
+      }
+
+      setResult(normalizeBackendResponse(rawPrediction, explanationText));
     } catch (err) {
       console.error("Prediction failed, using fallback mock:", err);
-      setResult(runMockAssessment(applicant));
+      setResult(runMockAssessment(dataToSend));
     } finally {
       setLoading(false);
     }
@@ -343,8 +470,7 @@ export default function FinancialAdvisorAgent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: q,
-          shap_json: result,
-          previous_explanation: result?.explanation?.summary || "",
+          context: result,
         }),
       });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -561,7 +687,7 @@ export default function FinancialAdvisorAgent() {
                           <label className="font-body text-xs text-slate-700">{f.label}</label>
                           {f.type === "number" && (
                             <span className="text-[10px] text-slate-400 font-body">
-                              Limit: {f.min} - {f.key.includes("income") || f.key.includes("amnt") ? "8 Lakh" : f.max}
+                              {f.max != null ? `Limit: ${f.min} - ${f.key === "loan_amnt" ? "8 Lakh" : f.max}` : `Min: ${f.min} · no upper limit`}
                             </span>
                           )}
                         </div>
@@ -577,15 +703,27 @@ export default function FinancialAdvisorAgent() {
                           <input
                             type="number"
                             min={f.min}
-                            max={f.max}
+                            max={f.max != null ? f.max : undefined}
                             step={f.step || 1}
                             className="font-body text-sm bg-white/70 border border-slate-200 rounded px-2 py-1 w-1/2 focus:outline-none focus:border-indigo-400 font-semibold text-slate-800"
                             value={applicant[f.key] ?? ""}
                             onChange={(e) => updateField(f.key, e.target.value, f)}
+                            onBlur={() => clampField(f.key, f)}
                           />
                         )}
                       </div>
                     ))}
+
+                    {/* Read-only — derived from loan amount / income, never typed directly */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col w-1/2">
+                        <label className="font-body text-xs text-slate-700">Loan / income ratio</label>
+                        <span className="text-[10px] text-slate-400 font-body">Auto-calculated</span>
+                      </div>
+                      <div className="font-body text-sm bg-slate-100 border border-slate-200 rounded px-2 py-1 w-1/2 text-slate-500">
+                        {(applicant.loan_percent_income ?? 0).toFixed(2)}
+                      </div>
+                    </div>
                   </div>
                 )}
 
