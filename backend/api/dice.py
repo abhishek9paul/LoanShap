@@ -1,20 +1,3 @@
-"""
-api/dice.py
-
-Generates counterfactual scenarios: minimal changes to an applicant's
-profile that would flip a REJECTED verdict to APPROVED.
-
-This does NOT use dice-ml's full search yet (that requires wiring up
-its Data/Model wrappers around your specific XGBoost pipeline, which
-takes longer than a hackathon slot usually allows). Instead it uses a
-small set of hand-picked, domain-sensible nudges (raise credit score,
-lower loan-to-income ratio, clear a prior default, extend credit
-history) and verifies each candidate against your REAL trained model
-via predict_loan — so every scenario returned is genuinely verified,
-not guessed. If you have time later, swap the nudge logic below for
-an actual dice_ml.Dice(...).generate_counterfactuals(...) call.
-"""
-
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Dict, Any, List
@@ -47,7 +30,7 @@ def _lower_loan_ratio(a: dict) -> dict:
 
 def _clear_default_flag(a: dict) -> dict:
     b = copy.deepcopy(a)
-    b["cb_person_default_on_file"] = "N"
+    b["previous_loan_defaults_on_file"] = "No"
     return b
 
 
@@ -81,25 +64,32 @@ NUDGES = [
 def generate_counterfactuals(data: CounterfactualRequest):
     original = data.current_applicant
     scenarios: List[dict] = []
+    errors = 0
 
     for nudge in NUDGES:
         candidate = nudge(original)
         try:
             result = predict_loan(candidate)
-            verdict = (
-                result.get("prediction", {}).get("verdict")
-                if isinstance(result, dict)
-                else getattr(result.prediction, "verdict", None)
-            )
+            # predict_loan() returns PredictionResponse.model_dump(mode="json"),
+            # i.e. a FLAT dict like {"prediction": 1, "approval_label": "approved", ...}.
+            # There is no nested result["prediction"]["verdict"] — "prediction" is
+            # just the raw int (0/1). approval_label is the human-readable field
+            # ("approved" / "rejected") and is what we actually want here.
+            verdict = result.get("approval_label") if isinstance(result, dict) else None
         except Exception as e:
-            # If predict_loan's expected input shape differs, skip
-            # this candidate rather than crashing the whole request.
+            # If predict_loan's expected input shape differs, skip this
+            # candidate rather than crashing the whole request — but log
+            # it, otherwise an all-failing run looks identical to an
+            # all-succeeding-but-no-flip run from the outside.
+            errors += 1
+            print(f"[dice] {nudge.__name__} failed: {type(e).__name__}: {e}")
+
             continue
 
-        if verdict == "APPROVED":
+        if verdict == "approved":
             scenarios.append(candidate)
 
         if len(scenarios) >= 3:
             break
 
-    return {"scenarios": scenarios}
+    return {"scenarios": scenarios, "errors": errors}

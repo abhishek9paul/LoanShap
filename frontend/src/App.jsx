@@ -318,6 +318,7 @@ export default function FinancialAdvisorAgent() {
   // DiCE counterfactual state
   const [diceScenarios, setDiceScenarios] = useState([]);
   const [generatingDice, setGeneratingDice] = useState(false);
+  const [diceStatus, setDiceStatus] = useState("idle"); // idle | empty | errored | failed_request
 
   const chatEndRef = useRef(null);
   const animatedRisk = useCountUp(result ? result.prediction.risk_probability * 100 : 0);
@@ -492,10 +493,23 @@ export default function FinancialAdvisorAgent() {
       });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
-      setDiceScenarios(data.scenarios || []);
+      const scenarios = data.scenarios || [];
+      setDiceScenarios(scenarios);
+      if (scenarios.length > 0) {
+        setDiceStatus("idle");
+      } else if (data.errors > 0) {
+        // Every candidate threw inside predict_loan — check the backend
+        // console for "[dice] <nudge> failed: ..." to see why.
+        setDiceStatus("errored");
+      } else {
+        // Every candidate ran fine but none flipped the verdict — a
+        // real (if underwhelming) result, not a bug.
+        setDiceStatus("empty");
+      }
     } catch (err) {
       console.error("DiCE generation failed:", err);
       setDiceScenarios([]);
+      setDiceStatus("failed_request");
     } finally {
       setGeneratingDice(false);
     }
@@ -785,19 +799,14 @@ export default function FinancialAdvisorAgent() {
                   Every query response generated below is completely mapped to the factual SHAP distribution values for this specific applicant instance.
                 </p>
 
-                <div className="flex-1 space-y-2 mb-3 overflow-y-auto" style={{ maxHeight: "250px" }}>
-                  {messages.length === 0 && (
-                    <p className="font-body text-xs text-indigo-900 bg-indigo-50/40 rounded-lg p-3 border border-indigo-100/50 leading-relaxed transition-all hover:bg-indigo-50/70">
-                      System conversational node is online. Query any attribution factor — e.g. <span className="italic underline decoration-indigo-300 cursor-help">"why did income matter less than credit score?"</span>
-                    </p>
-                  )}
+                <div className="flex-1 space-y-2 mb-3 overflow-y-auto" style={{ maxHeight: "420px" }}>
                   {messages.map((m, i) => (
                     <div key={i} className={`rise text-sm px-3 py-2 rounded-xl max-w-[92%] font-body ${
                       m.role === "user"
                         ? "bg-white text-slate-800 ml-auto border border-slate-200/70 shadow-sm"
                         : "text-[13px] bg-slate-900 text-slate-50 leading-relaxed shadow-md border border-slate-800"
                     }`}>
-                      {m.role === "agent" && <span className="text-indigo-400 font-semibold">System &gt; </span>}
+                      {m.role === "agent" && <span className="text-indigo-400 font-semibold">AI Ledger &gt; </span>}
                       {m.text}
                     </div>
                   ))}
@@ -837,6 +846,13 @@ export default function FinancialAdvisorAgent() {
                       Minimal attribute shifts that would pivot this verdict to an Approval.
                     </p>
 
+                    {(diceScenarios.length > 0 || generatingDice) && (
+                      <div className="flex items-center gap-1.5 mb-3 text-[10px] font-body text-slate-500">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-amber-100 border border-amber-300 inline-block shrink-0" />
+                        <span>Highlighted fields are the only ones changed from your original applicant — everything else stayed the same.</span>
+                      </div>
+                    )}
+
                     {generatingDice ? (
                       <div className="space-y-2">
                         {[0, 1, 2].map((i) => (
@@ -856,7 +872,7 @@ export default function FinancialAdvisorAgent() {
                                   <div key={key} className={`flex justify-between py-0.5 ${isChanged ? "bg-amber-50 font-medium text-amber-900 px-1 rounded" : ""}`}>
                                     <span>{FEATURE_LABELS[key]}:</span>
                                     <span>
-                                      {key.includes("income") || key.includes("amnt")
+                                      {(key === "person_income" || key === "loan_amnt")
                                         ? `₹${Number(scenario[key]).toLocaleString("en-IN")}`
                                         : scenario[key]}
                                     </span>
@@ -869,7 +885,13 @@ export default function FinancialAdvisorAgent() {
                       </div>
                     ) : (
                       <div className="text-center font-body text-[11px] text-slate-400 py-3 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                        Awaiting alternative optimization...
+                        {diceStatus === "errored"
+                          ? "Every candidate errored server-side — check the backend console for [dice] logs."
+                          : diceStatus === "failed_request"
+                          ? "Couldn't reach the DiCE endpoint — is the backend running?"
+                          : diceStatus === "empty"
+                          ? "No nudge in this set flipped the verdict to Approved."
+                          : "Awaiting alternative optimization..."}
                       </div>
                     )}
                   </div>
