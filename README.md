@@ -12,7 +12,7 @@ LoanShap predicts loan approval decisions and explains exactly why - using real,
 <img width="1068" height="925" alt="DiCE" src="https://github.com/user-attachments/assets/4891fe56-37ce-45ce-8250-88294cae651f" />
 
 ---
-## How it works
+## How it works ^_^
 
 1. **Predict** - an XGBoost classifier trained on 45,000 loan records predicts approve/reject with a probability score.
 2. **Explain** - SHAP's TreeExplainer computes exactly which applicant factors pushed the decision, and by how much (not approximated).
@@ -61,7 +61,7 @@ LoanShap/
 
 ---
 
-## API reference
+## API reference ∞
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -109,7 +109,17 @@ Set `VITE_API_BASE` in a `.env` file if the backend isn't running on `localhost:
 Trained on the [Loan Approval Classification dataset](https://www.kaggle.com/datasets/taweilo/loan-approval-classification-data) (Kaggle) - 45,000 records with applicant demographics, loan details, and credit history.
 
 ---
-
-## Why this matters
+## Why we chose Explainable AI
 
 Most credit-scoring models are black boxes - an applicant or reviewer gets a yes/no with no reasoning. LoanShap closes that gap: every decision is backed by real attribution data, every explanation is grounded in that data, and every "what would it take to get approved" answer is verified against the actual model rather than guessed.
+
+---
+
+## Collaborators: Team PaneerParathe ☻
+[Abhishek Paul][ap] <br>
+[Kushaagra Sood][ks] <br>
+[Siddhartha Gupta][sg] <br>
+
+[ap]: https://github.com/abhishek9paul
+[ks]: https://github.com/kushaagrasood
+[sg]: https://github.com/sid-skippy
