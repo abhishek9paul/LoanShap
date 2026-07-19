@@ -841,13 +841,20 @@ export default function FinancialAdvisorAgent() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-center font-body text-[11px] text-slate-400 py-3 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                      <div className="text-center font-body text-[11px] text-slate-400 py-3 px-3 border border-dashed border-slate-200 rounded-xl bg-slate-50/50 leading-relaxed">
                         {diceStatus === "errored"
                           ? "Every candidate errored server-side — check the backend console for [dice] logs."
                           : diceStatus === "failed_request"
                           ? "Couldn't reach the DiCE endpoint — is the backend running?"
                           : diceStatus === "empty"
-                          ? "No nudge in this set flipped the verdict to Approved."
+                          ? (
+                              <span>
+                                <span className="font-medium text-slate-600">No approving pathway found.</span>{" "}
+                                {result && result.prediction.risk_probability >= 0.75
+                                  ? `This applicant's estimated risk (${Math.round(result.prediction.risk_probability * 100)}%) is far past the approval threshold — the standard single-factor nudges (credit score, loan ratio, default history, credit length) weren't enough to close that gap. A larger, multi-factor change would likely be needed.`
+                                  : `None of the tested adjustments were enough on their own to flip this specific verdict — the factors weighing against approval may be too intertwined for a single change to fix.`}
+                              </span>
+                            )
                           : "Awaiting alternative optimization..."}
                       </div>
                     )}
